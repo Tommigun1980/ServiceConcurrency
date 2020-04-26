@@ -20,7 +20,7 @@ namespace ServiceConcurrency
     /// need for additional backing fields in your code. If the argument
     /// is a collection, cached entities are stripped.
     /// 
-    /// See https://github.com/Tommigun1980/Concurrency for examples and
+    /// See https://github.com/Tommigun1980/ServiceConcurrency for examples and
     /// documentation.
     /// </summary>
     internal class NamespaceDoc

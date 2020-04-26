@@ -7,7 +7,8 @@ public class MyService
 {
     ////////////////////////////////////////////////////////////////////////////
     // NoArgNoValue example
-    private ServiceConcurrency.NoArgNoValue simpleCallState = new ServiceConcurrency.NoArgNoValue();
+    private ServiceConcurrency.NoArgNoValue simpleCallState =
+        new ServiceConcurrency.NoArgNoValue();
 
     // Concurrent calls won't invoke the callback multiple times - only the first
     // call will invoke it, and the rest will wait until it finishes.
@@ -25,7 +26,8 @@ public class MyService
 
     ////////////////////////////////////////////////////////////////////////////
     // ReturnsValue example
-    private ServiceConcurrency.ReturnsValue<string> returnsValueState = new ServiceConcurrency.ReturnsValue<string>();
+    private ServiceConcurrency.ReturnsValue<string> returnsValueState =
+        new ServiceConcurrency.ReturnsValue<string>();
 
     // Only one call will be made and subsequent calls will fetch the value from
     // cache. Also prevents any concurrent calls from occurring, by allowing only
@@ -46,7 +48,8 @@ public class MyService
 
     ////////////////////////////////////////////////////////////////////////////
     // TakesArg example
-    private ServiceConcurrency.TakesArg<Guid> takesArgState = new ServiceConcurrency.TakesArg<Guid>();
+    private ServiceConcurrency.TakesArg<Guid> takesArgState =
+        new ServiceConcurrency.TakesArg<Guid>();
 
     // Prevents concurrent calls when sharing the same argument, by allowing only
     // one active call at a time per argument, where concurrent calls will wait for
@@ -66,7 +69,8 @@ public class MyService
 
     ////////////////////////////////////////////////////////////////////////////
     // TakesArgReturnsValue example
-    private ServiceConcurrency.TakesArgReturnsValue<Guid, string> takesArgReturnsValueState = new ServiceConcurrency.TakesArgReturnsValue<Guid, string>();
+    private ServiceConcurrency.TakesArgReturnsValue<Guid, string> takesArgReturnsValueState =
+        new ServiceConcurrency.TakesArgReturnsValue<Guid, string>();
 
     // For a given argument, only one call will be made and subsequent calls will
     // fetch the value from cache.Also prevents any concurrent calls from occurring,
@@ -88,7 +92,8 @@ public class MyService
 
     ////////////////////////////////////////////////////////////////////////////
     // TakesEnumerationArg example
-    private ServiceConcurrency.TakesEnumerationArg<Guid> takesEnumerationArgState = new ServiceConcurrency.TakesEnumerationArg<Guid>();
+    private ServiceConcurrency.TakesEnumerationArg<Guid> takesEnumerationArgState =
+        new ServiceConcurrency.TakesEnumerationArg<Guid>();
 
     // Concurrent calls will execute only once for a given argument in the argument
     // collection.
