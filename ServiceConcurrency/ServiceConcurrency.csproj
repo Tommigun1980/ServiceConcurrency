@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <PackOnBuild>true</PackOnBuild>
-    <PackageVersion>1.0.1</PackageVersion>
+    <PackageVersion>1.1.0</PackageVersion>
     <Authors>Tommi Kiviniemi</Authors>
     <Copyright>Copyright © 2020</Copyright>
     <PackageLicenseUrl>https://github.com/Tommigun1980/ServiceConcurrency/blob/master/LICENSE</PackageLicenseUrl>

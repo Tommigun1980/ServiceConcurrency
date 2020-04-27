@@ -5,6 +5,7 @@ using System.Linq;
 
 namespace ServiceConcurrency
 {
+#pragma warning disable CS1591
     /// <summary>
     /// A library for handling concurrency and state, primarily for code that
     /// calls out to web services.
@@ -25,6 +26,19 @@ namespace ServiceConcurrency
     /// </summary>
     internal class NamespaceDoc
     {
+    }
+
+    internal static class ConvertValue
+    {
+        public static TValue Convert<TSourceValue, TValue>(object value, Func<TSourceValue, TValue> valueConverter = null)
+        {
+            return valueConverter != null ? valueConverter((TSourceValue)value) : DefaultConvert<TValue>(value);
+        }
+
+        private static TValue DefaultConvert<TValue>(object value)
+        {
+            return (TValue)value;
+        }
     }
 
     /// <summary>
@@ -79,36 +93,43 @@ namespace ServiceConcurrency
     /// first call will invoke it, and the rest will wait until it finishes. When
     /// it does, all concurrent calls will return that value.
     /// </remarks>
-    public sealed class ReturnsValue<TValue>
+    public sealed class ReturnsValue<TValue> : ReturnsValue<TValue, TValue>
+    {
+    }
+
+    public class ReturnsValue<TSourceValue, TValue>
     {
         public TValue Value { get; set; }
         public bool EnableCache { get; set; } = true;
 
         private bool hasValue;
-        private Task<TValue> runningTask;
+        private Task<TSourceValue> runningTask;
 
         public async Task<TValue> Execute(
-            Func<Task<TValue>> taskGetter,
+            Func<Task<TSourceValue>> taskGetter,
+            Func<TSourceValue, TValue> valueConverter = null,
             bool bypassCache = false)
         {
             if (this.EnableCache && !bypassCache && this.hasValue)
                 return this.Value;
 
             if (this.runningTask != null)
-                return await this.runningTask;
+                return ConvertValue.Convert(await this.runningTask, valueConverter);
 
             this.runningTask = taskGetter();
             try
             {
                 var result = await this.runningTask;
 
+                var convertedResult = ConvertValue.Convert(result, valueConverter);
+
                 if (this.EnableCache)
                 {
-                    this.Value = result;
+                    this.Value = convertedResult;
                     this.hasValue = true;
                 }
 
-                return result;
+                return convertedResult;
             }
             finally
             {
@@ -202,25 +223,30 @@ namespace ServiceConcurrency
     /// "A" and one for "B". The next time "A" or "B" is called with, a value for
     /// it will be fetched from the cache and no request will be made.
     /// </remarks>
-    public sealed class TakesArgReturnsValue<TArg, TValue>
+    public sealed class TakesArgReturnsValue<TArg, TValue> : TakesArgReturnsValue<TArg, TValue, TValue>
+    {
+    }
+
+    public class TakesArgReturnsValue<TArg, TSourceValue, TValue>
     {
         public Dictionary<TArg, TValue> ValueMap { get; } = new Dictionary<TArg, TValue>();
         public bool EnableCache { get; set; } = true;
 
-        private readonly Dictionary<TArg, Task<TValue>> runningTasksMap = new Dictionary<TArg, Task<TValue>>();
+        private readonly Dictionary<TArg, Task<TSourceValue>> runningTasksMap = new Dictionary<TArg, Task<TSourceValue>>();
 
         public async Task<TValue> Execute(
-            Func<TArg, Task<TValue>> taskGetter,
+            Func<TArg, Task<TSourceValue>> taskGetter,
             TArg requestArg,
+            Func<TSourceValue, TValue> valueConverter = null,
             bool bypassCache = false)
         {
             TValue value;
             if (this.EnableCache && !bypassCache && this.ValueMap.TryGetValue(requestArg, out value))
                 return value;
 
-            Task<TValue> taskInFlightFetchingRelevantArg;
+            Task<TSourceValue> taskInFlightFetchingRelevantArg;
             if (this.runningTasksMap.TryGetValue(requestArg, out taskInFlightFetchingRelevantArg))
-                return await taskInFlightFetchingRelevantArg;
+                return ConvertValue.Convert(await taskInFlightFetchingRelevantArg, valueConverter);
 
             var task = taskGetter(requestArg);
             this.runningTasksMap.Add(requestArg, task);
@@ -228,10 +254,11 @@ namespace ServiceConcurrency
             {
                 var result = await task;
 
+                var convertedResult = ConvertValue.Convert(result, valueConverter);
                 if (this.EnableCache)
-                    this.ValueMap[requestArg] = result;
+                    this.ValueMap[requestArg] = convertedResult;
 
-                return result;
+                return convertedResult;
             }
             finally
             {
@@ -325,17 +352,22 @@ namespace ServiceConcurrency
     /// The next time "A", "B", "C" or "D" is called with, it will be stripped from
     /// the collection and a value for it will be fetched from the cache.
     /// </remarks>
-    public sealed class TakesEnumerationArgReturnsValue<TArg, TValue>
+    public sealed class TakesEnumerationArgReturnsValue<TArg, TValue> : TakesEnumerationArgReturnsValue<TArg, TValue, TValue>
+    {
+    }
+
+    public class TakesEnumerationArgReturnsValue<TArg, TSourceValue, TValue>
     {
         public Dictionary<TArg, TValue> ValueMap { get; } = new Dictionary<TArg, TValue>();
         public bool EnableCache { get; set; } = true;
 
-        private readonly Dictionary<TArg, Task<IEnumerable<TValue>>> runningTasksMap = new Dictionary<TArg, Task<IEnumerable<TValue>>>();
+        private readonly Dictionary<TArg, Task<IEnumerable<TSourceValue>>> runningTasksMap = new Dictionary<TArg, Task<IEnumerable<TSourceValue>>>();
 
         public async Task<IEnumerable<TValue>> Execute(
-            Func<IEnumerable<TArg>, Task<IEnumerable<TValue>>> taskGetter,
+            Func<IEnumerable<TArg>, Task<IEnumerable<TSourceValue>>> taskGetter,
             Func<TArg, IEnumerable<TValue>, TValue> valueForArgGetter,
             IEnumerable<TArg> requestArg,
+            Func<IEnumerable<TSourceValue>, IEnumerable<TValue>> valueConverter = null,
             bool bypassCache = false)
         {
             requestArg = requestArg.Distinct();
@@ -354,7 +386,7 @@ namespace ServiceConcurrency
                     foreach (var arg in argsRequiringCall)
                         this.runningTasksMap.Add(arg, task);
 
-                    result = await task;
+                    result = ConvertValue.Convert(await task, valueConverter);
 
                     if (this.EnableCache)
                     {
@@ -378,8 +410,9 @@ namespace ServiceConcurrency
 
             if (tasksInFlightForRelevantArgs.Any())
             {
-                var otherResult = await Task.WhenAll(tasksInFlightForRelevantArgs.Select(t => t.Value));
-                result = result.Union(otherResult.SelectMany(t => t));
+                var otherTasksResults = await Task.WhenAll(tasksInFlightForRelevantArgs.Select(t => t.Value));
+                var otherResult = ConvertValue.Convert(otherTasksResults.SelectMany(t => t), valueConverter);
+                result = result.Union(otherResult);
             }
 
             var argsFromCache = requestArg.Where(t => !argsNotInCache.Contains(t));
@@ -408,4 +441,5 @@ namespace ServiceConcurrency
             return this.runningTasksMap.ContainsKey(requestArg);
         }
     }
+#pragma warning restore CS1591
 }
