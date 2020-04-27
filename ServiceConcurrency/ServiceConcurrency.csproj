@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <PackOnBuild>true</PackOnBuild>
-    <PackageVersion>1.0.0</PackageVersion>
+    <PackageVersion>1.0.1</PackageVersion>
     <Authors>Tommi Kiviniemi</Authors>
     <Copyright>Copyright © 2020</Copyright>
     <PackageLicenseUrl>https://github.com/Tommigun1980/ServiceConcurrency/blob/master/LICENSE</PackageLicenseUrl>
@@ -27,11 +27,17 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Remove="Examples\ExampleService.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Update="ServiceConcurrency.cs">
       <IncludeInPackage>true</IncludeInPackage>
     </Compile>
   </ItemGroup>
   <ItemGroup>
     <Folder Include="Examples\" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Examples\ExampleService.cs" Condition=" '$(EnableDefaultCompileItems)' == 'true' " />
   </ItemGroup>
 </Project>
