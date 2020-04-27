@@ -1,6 +1,8 @@
 # ServiceConcurrency
 _A concurrency and state library for .NET, shines in net call services._
 
+NuGet package available at https://www.nuget.org/packages/ServiceConcurrency/
+
 ## Intro
 A library for handling concurrency and state, primarily for code that
 calls out to web services.
