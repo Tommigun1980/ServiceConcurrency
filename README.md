@@ -15,8 +15,9 @@ is a collection, entities already in flight are stripped.
 Second, it caches the state of value returning requests. When a cached
 value exists for any given request, it will be returned instead of a
 call being made. This value can be accessed at any time, preventing a
-need for additional backing fields in your code. If the argument
-is a collection, cached entities are stripped.
+need for additional backing fields in your code. If the argument is a
+collection, cached entities are stripped from the argument.
+
 
 ## Real-life examples
 
@@ -93,7 +94,7 @@ The argument collection is stripped of values for which an operation is already
 in flight.
 
 So simultaneously calling with ["A", "B", "C"] and ["B", "C", "D"] will result
-in one call with ["A", "B", "C"] and one with ["D"]).
+in one call with ["A", "B", "C"] and one with ["D"].
 
 **TakesEnumerationArgReturnsValue&lt;TArg, TValue&gt;**
 
@@ -104,8 +105,8 @@ from cache.
 The argument collection is stripped of values for which a cached value exists
 or an operation is already in flight.
 
-So simultaneously calling with ["A", "B", "C"]) and ["B", "C", "D"] will
-result in one call with ["A", "B", "C"] and one with ["D"]).
+So simultaneously calling with ["A", "B", "C"] and ["B", "C", "D"] will
+result in one call with ["A", "B", "C"] and one with ["D"].
 The next time "A", "B", "C" or "D" is called with, it will be stripped from
 the collection and a value for it will be fetched from the cache.
 
@@ -116,25 +117,25 @@ the collection and a value for it will be fetched from the cache.
 T Execute(...)
 ```
 
-Executes a specific request via the helper. You provide a callback for making the outside call. See the examples for more information, as the arguments and return types are helper specific.
+Executes a specific request. You provide a callback for making the outside call. See the examples for more information, as the arguments and return types are ServiceConcurrency type specific.
 
 ```c#
 void Reset()
 ```
 
-Resets the internal state, ie state for calls in process and internal cache (in case the helper returns values).
+Resets the internal state, ie state for calls in process and internal cache (in case the ServiceConcurrency object returns values).
 
 ```c#
 bool IsExecuting()
 ```
 
-Returns whether the helper is currently executing a specific request.
+Returns whether the ServiceConcurrency object is currently executing a specific request.
 
 ```c#
 void ResetCache()
 ```
 
-Only for helpers that return values. Resets the internal cache. Also called from Reset().
+Only in ServiceConcurrency objects that return values. Resets the internal cache. Also called from Reset().
 
 ### Properties
 
@@ -142,7 +143,7 @@ Only for helpers that return values. Resets the internal cache. Also called from
 bool EnableCache;
 ```
 
-Only for helpers that return values. If turned off, the cache will be bypassed.
+Only in ServiceConcurrency objects that return values. If turned off, the cache will be bypassed.
 
 ```c#
 TValue Value;
@@ -156,7 +157,48 @@ Dictionary<TArg, TValue> ValueMap;
 
 Only in TakesArgReturnsValue&lt;TArg, TValue&gt; and TakesEnumerationArgReturnsValue&lt;TArg, TValue&gt;. This is the cached state, per argument.
 
-###
+### Value conversion (optional)
+
+Execute() accepts an optional value converter, which can modify the fetched value before returning and caching it. This is available only in the ServiceConcurrency objects that return values.
+
+```c#
+private ServiceConcurrency.ReturnsValue<string> lastName =
+    new ServiceConcurrency.ReturnsValue<string>();
+
+private const string FirstName = "John";
+
+public async Task<string> GetFullName()
+{
+    return await this.lastName.Execute(
+        this.GetLastName,
+        (lastName) => $"{FirstName} {lastName}";
+    );
+}
+```
+
+ServiceConcurrency objects also accept an additional parameter that declare the value type of the internal request. When this is specified, the value converter will also convert between the source type and the destination type. This is useful if the request invoked by Execute() is of a different type than the desired backing field.
+
+```c#
+// FetchChatRooms() returns an IEnumerable<ChatRoom>, chatRoomMap handles it as Dictionary<Guid, ChatRoom>
+private ServiceConcurrency.ReturnsValue<IEnumerable<ChatRoom>, Dictionary<Guid, ChatRoom>> chatRoomMap =
+    new ServiceConcurrency.ReturnsValue<IEnumerable<ChatRoom>, Dictionary<Guid, ChatRoom>>();
+
+public async Task<IEnumerable<ChatRoom>> UpdateChatRooms()
+{
+    return (await this.chatRoomMap.Execute(
+        this.FetchChatRooms,
+        (chatRooms) => chatRooms.ToDictionary(t => t.Id, t => t) // cache as id -> chatroom map
+    ))?.Values;
+}
+
+public ChatRoom GetChatRoom(Guid chatRoomId)
+{
+    ChatRoom chatRoom;
+    if (this.chatRoomMap.Value.TryGetValue(chatRoomId, out chatRoom)) // value is Dictionary<Guid, ChatRoom>
+        return chatRoom;
+    return null;
+}
+```
 
 ## Examples ##
 
@@ -265,7 +307,7 @@ public class MyService
     // in flight.
     //
     // So simultaneously calling with ["A", "B", "C"] and ["B", "C", "D"] will result
-    // in one call with ["A", "B", "C"] and one with ["D"]).
+    // in one call with ["A", "B", "C"] and one with ["D"].
     public async Task PostCollection(IEnumerable<Guid> someIds)
     {
         await this.takesEnumerationArgState.Execute(
@@ -296,8 +338,8 @@ public class MyService
     // The argument collection is stripped of values for which a cached value exists
     // or an operation is alraedy in flight.
     //
-    // So simultaneously calling with ["A", "B", "C"]) and ["B", "C", "D"] will
-    // result in one call with ["A", "B", "C"] and one with ["D"]).
+    // So simultaneously calling with ["A", "B", "C"] and ["B", "C", "D"] will
+    // result in one call with ["A", "B", "C"] and one with ["D"].
     // The next time "A", "B", "C" or "D" is called with, it will be stripped from
     // the collection and a value for it will be fetched from the cache.
     public async Task<IEnumerable<ExampleClass>> FetchCollectionForThese(IEnumerable<Guid> someIds)
