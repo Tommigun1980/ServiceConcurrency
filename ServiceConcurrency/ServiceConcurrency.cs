@@ -41,6 +41,50 @@ namespace ServiceConcurrency
         }
     }
 
+    // return types for execution methods that return state change info
+    public struct StateInfo
+    {
+        public bool ChangedState { get; private set; }
+
+        internal StateInfo(bool changedState)
+        {
+            this.ChangedState = changedState;
+        }
+    }
+    public struct ResultAndStateInfo<TValue>
+    {
+        public TValue Result { get; private set; }
+        public StateInfo StateInfo { get; private set; }
+
+        internal ResultAndStateInfo(bool changedState, TValue result)
+        {
+            this.StateInfo = new StateInfo(changedState);
+            this.Result = result;
+        }
+    }
+
+    // return types for enumerable execution methods that return state change info
+    public struct EnumerableStateInfo<TArg>
+    {
+        public IEnumerable<TArg> ChangedElements { get; private set; }
+
+        internal EnumerableStateInfo(IEnumerable<TArg> changedElements)
+        {
+            this.ChangedElements = changedElements;
+        }
+    }
+    public struct EnumerableResultAndStateInfo<TArg, TValue>
+    {
+        public IEnumerable<TValue> Result { get; private set; }
+        public EnumerableStateInfo<TArg> EnumerableStateInfo { get; private set; }
+
+        internal EnumerableResultAndStateInfo(IEnumerable<TArg> changedElements, IEnumerable<TValue> result)
+        {
+            this.EnumerableStateInfo = new EnumerableStateInfo<TArg>(changedElements);
+            this.Result = result;
+        }
+    }
+
     /// <summary>
     /// Prevents concurrent calls by allowing only one active call at a time,
     /// where concurrent calls will wait for the active call to finish.
@@ -49,25 +93,32 @@ namespace ServiceConcurrency
     {
         private Task runningTask;
 
-        public async Task Execute(
+        public async Task<StateInfo> ExecuteAndGetExecutorInfo(
             Func<Task> taskGetter)
         {
-            if (this.runningTask == null)
-            {
-                this.runningTask = taskGetter();
-                try
-                {
-                    await this.runningTask;
-                }
-                finally
-                {
-                    this.runningTask = null;
-                }
-            }
-            else
+            if (this.runningTask != null)
             {
                 await this.runningTask;
+                return new StateInfo(false);
             }
+
+            this.runningTask = taskGetter();
+            try
+            {
+                await this.runningTask;
+
+                return new StateInfo(true);
+            }
+            finally
+            {
+                this.runningTask = null;
+            }
+        }
+
+        public Task Execute(
+            Func<Task> taskGetter)
+        {
+            return this.ExecuteAndGetExecutorInfo(taskGetter);
         }
 
         public void Reset()
@@ -105,16 +156,16 @@ namespace ServiceConcurrency
         private bool hasValue;
         private Task<TSourceValue> runningTask;
 
-        public async Task<TValue> Execute(
+        public async Task<ResultAndStateInfo<TValue>> ExecuteAndGetExecutorInfo(
             Func<Task<TSourceValue>> taskGetter,
             Func<TSourceValue, TValue> valueConverter = null,
             bool bypassCache = false)
         {
             if (this.EnableCache && !bypassCache && this.hasValue)
-                return this.Value;
+                return new ResultAndStateInfo<TValue>(false, this.Value);
 
             if (this.runningTask != null)
-                return ConvertValue.Convert(await this.runningTask, valueConverter);
+                return new ResultAndStateInfo<TValue>(false, ConvertValue.Convert(await this.runningTask, valueConverter));
 
             this.runningTask = taskGetter();
             try
@@ -129,12 +180,20 @@ namespace ServiceConcurrency
                     this.hasValue = true;
                 }
 
-                return convertedResult;
+                return new ResultAndStateInfo<TValue>(true, convertedResult);
             }
             finally
             {
                 this.runningTask = null;
             }
+        }
+
+        public async Task<TValue> Execute(
+            Func<Task<TSourceValue>> taskGetter,
+            Func<TSourceValue, TValue> valueConverter = null,
+            bool bypassCache = false)
+        {
+            return (await this.ExecuteAndGetExecutorInfo(taskGetter, valueConverter, bypassCache)).Result;
         }
 
         public void Reset()
@@ -172,7 +231,7 @@ namespace ServiceConcurrency
     {
         private readonly Dictionary<TArg, Task> runningTasksMap = new Dictionary<TArg, Task>();
 
-        public async Task Execute(
+        public async Task<StateInfo> ExecuteAndGetExecutorInfo(
             Func<TArg, Task> taskGetter,
             TArg requestArg)
         {
@@ -180,7 +239,7 @@ namespace ServiceConcurrency
             if (this.runningTasksMap.TryGetValue(requestArg, out runningTask))
             {
                 await runningTask;
-                return;
+                return new StateInfo(false);
             }
 
             var task = taskGetter(requestArg);
@@ -188,11 +247,20 @@ namespace ServiceConcurrency
             try
             {
                 await task;
+
+                return new StateInfo(true);
             }
             finally
             {
                 this.runningTasksMap.Remove(requestArg);
             }
+        }
+
+        public Task Execute(
+            Func<TArg, Task> taskGetter,
+            TArg requestArg)
+        {
+            return this.ExecuteAndGetExecutorInfo(taskGetter, requestArg);
         }
 
         public void Reset()
@@ -234,7 +302,7 @@ namespace ServiceConcurrency
 
         private readonly Dictionary<TArg, Task<TSourceValue>> runningTasksMap = new Dictionary<TArg, Task<TSourceValue>>();
 
-        public async Task<TValue> Execute(
+        public async Task<ResultAndStateInfo<TValue>> ExecuteAndGetExecutorInfo(
             Func<TArg, Task<TSourceValue>> taskGetter,
             TArg requestArg,
             Func<TSourceValue, TValue> valueConverter = null,
@@ -242,11 +310,11 @@ namespace ServiceConcurrency
         {
             TValue value;
             if (this.EnableCache && !bypassCache && this.ValueMap.TryGetValue(requestArg, out value))
-                return value;
+                return new ResultAndStateInfo<TValue>(false, value);
 
             Task<TSourceValue> taskInFlightFetchingRelevantArg;
             if (this.runningTasksMap.TryGetValue(requestArg, out taskInFlightFetchingRelevantArg))
-                return ConvertValue.Convert(await taskInFlightFetchingRelevantArg, valueConverter);
+                return new ResultAndStateInfo<TValue>(false, ConvertValue.Convert(await taskInFlightFetchingRelevantArg, valueConverter));
 
             var task = taskGetter(requestArg);
             this.runningTasksMap.Add(requestArg, task);
@@ -258,12 +326,21 @@ namespace ServiceConcurrency
                 if (this.EnableCache)
                     this.ValueMap[requestArg] = convertedResult;
 
-                return convertedResult;
+                return new ResultAndStateInfo<TValue>(true, convertedResult);
             }
             finally
             {
                 this.runningTasksMap.Remove(requestArg);
             }
+        }
+
+        public async Task<TValue> Execute(
+            Func<TArg, Task<TSourceValue>> taskGetter,
+            TArg requestArg,
+            Func<TSourceValue, TValue> valueConverter = null,
+            bool bypassCache = false)
+        {
+            return (await this.ExecuteAndGetExecutorInfo(taskGetter, requestArg, valueConverter, bypassCache)).Result;
         }
 
         public void Reset()
@@ -298,7 +375,7 @@ namespace ServiceConcurrency
     {
         private readonly Dictionary<TArg, Task> runningTasksMap = new Dictionary<TArg, Task>();
 
-        public async Task Execute(
+        public async Task<EnumerableStateInfo<TArg>> ExecuteAndGetExecutorInfo(
             Func<IEnumerable<TArg>, Task> taskGetter,
             IEnumerable<TArg> requestArg)
         {
@@ -325,6 +402,15 @@ namespace ServiceConcurrency
 
             if (tasksInFlightForRelevantArgs.Any())
                 await Task.WhenAll(tasksInFlightForRelevantArgs.Select(t => t.Value));
+
+            return new EnumerableStateInfo<TArg>(argsRequiringCall);
+        }
+
+        public Task Execute(
+            Func<IEnumerable<TArg>, Task> taskGetter,
+            IEnumerable<TArg> requestArg)
+        {
+            return this.ExecuteAndGetExecutorInfo(taskGetter, requestArg);
         }
 
         public void Reset()
@@ -363,7 +449,7 @@ namespace ServiceConcurrency
 
         private readonly Dictionary<TArg, Task<IEnumerable<TSourceValue>>> runningTasksMap = new Dictionary<TArg, Task<IEnumerable<TSourceValue>>>();
 
-        public async Task<IEnumerable<TValue>> Execute(
+        public async Task<EnumerableResultAndStateInfo<TArg, TValue>> ExecuteAndGetExecutorInfo(
             Func<IEnumerable<TArg>, Task<IEnumerable<TSourceValue>>> taskGetter,
             Func<TArg, IEnumerable<TValue>, TValue> valueForArgGetter,
             IEnumerable<TArg> requestArg,
@@ -422,7 +508,17 @@ namespace ServiceConcurrency
                 result = result.Union(fromCache);
             }
 
-            return result;
+            return new EnumerableResultAndStateInfo<TArg, TValue>(argsRequiringCall, result);
+        }
+
+        public async Task<IEnumerable<TValue>> Execute(
+            Func<IEnumerable<TArg>, Task<IEnumerable<TSourceValue>>> taskGetter,
+            Func<TArg, IEnumerable<TValue>, TValue> valueForArgGetter,
+            IEnumerable<TArg> requestArg,
+            Func<IEnumerable<TSourceValue>, IEnumerable<TValue>> valueConverter = null,
+            bool bypassCache = false)
+        {
+            return (await this.ExecuteAndGetExecutorInfo(taskGetter, valueForArgGetter, requestArg, valueConverter, bypassCache)).Result;
         }
 
         public void Reset()
