@@ -89,7 +89,7 @@ namespace ServiceConcurrency
     }
 
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public abstract class BaseMemoryCache<TArg, TValue> : IEnumerable, IEnumerable<KeyValuePair<TArg, TValue>>
+    public abstract class BaseMemoryCache<TArg, TValue> : IEnumerable, IEnumerable<KeyValuePair<TArg, TValue>>, IDisposable
     {
         public MemoryCacheEntryOptions CacheEntryOptions { get; set; } = new MemoryCacheEntryOptions() { SlidingExpiration = TimeSpan.FromHours(1) };
 
@@ -162,6 +162,12 @@ namespace ServiceConcurrency
                 if (this.cache.TryGetValue(key, out value))
                     yield return new KeyValuePair<TArg, TValue>(key, value);
             }
+        }
+
+        public void Dispose()
+        {
+            this.cache.Dispose();
+            this.possibleKeys.Clear();
         }
     }
 
