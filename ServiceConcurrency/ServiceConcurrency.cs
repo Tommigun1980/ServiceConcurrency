@@ -92,6 +92,7 @@ namespace ServiceConcurrency
     public abstract class BaseMemoryCache<TArg, TValue> : IEnumerable, IEnumerable<KeyValuePair<TArg, TValue>>, IDisposable
     {
         public MemoryCacheEntryOptions CacheEntryOptions { get; set; } = new MemoryCacheEntryOptions() { SlidingExpiration = TimeSpan.FromHours(1) };
+        public bool IsCacheShared { get; private set; }
 
         private IMemoryCache cache;
         private readonly ISet<TArg> possibleKeys = new HashSet<TArg>(); // might contain keys for expired items, only used for clearing cache
@@ -99,9 +100,11 @@ namespace ServiceConcurrency
         public BaseMemoryCache(IMemoryCache cache)
         {
             this.cache = cache;
+            this.IsCacheShared = true;
         }
         public BaseMemoryCache() : this(new MemoryCache(new MemoryCacheOptions()))
         {
+            this.IsCacheShared = false;
         }
 
         public void ResetCache()
@@ -166,8 +169,15 @@ namespace ServiceConcurrency
 
         public void Dispose()
         {
-            this.cache.Dispose();
-            this.possibleKeys.Clear();
+            if (!this.IsCacheShared)
+            {
+                this.cache.Dispose();
+                this.possibleKeys.Clear();
+            }
+            else
+            {
+                this.ResetCache();
+            }
         }
     }
 
