@@ -184,6 +184,12 @@ IEnumerator IEnumerable.GetEnumerator()
 
 Enumerators for the internal cache. Allows you to use the objects in foreach and LINQ statements.
 
+```c#
+void Dispose()
+```
+
+Disposes of the internal cache.
+
 ### Properties
 
 ```c#
