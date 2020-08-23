@@ -177,6 +177,13 @@ TValue this[TArg key]
 
 Array operator for setting and getting cache entries. Throws a KeyNotFoundException in the getter if an entry doesn't exist.
 
+```c#
+IEnumerator<KeyValuePair<TArg, TValue>> GetEnumerator()
+IEnumerator IEnumerable.GetEnumerator()
+```
+
+Enumerators for the internal cache. Allows you to use the objects in foreach and LINQ statements.
+
 ### Properties
 
 ```c#
@@ -194,7 +201,8 @@ Only in ReturnsValue&lt;TValue&gt;. This is the single cached object.
 
 ### Value conversion (optional)
 
-Execute() accepts an optional value converter, which can modify the fetched value before returning and caching it. This is available only in the ServiceConcurrency objects that return values.
+Execute() accepts an optional value converter, which can modify the fetched value before returning and caching it.
+This is available only in the ServiceConcurrency objects that return values.
 
 ```c#
 private ServiceConcurrency.ReturnsValue<string> lastName =
