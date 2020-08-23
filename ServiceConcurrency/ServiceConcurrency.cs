@@ -1,7 +1,10 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Linq;
+using System.ComponentModel;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace ServiceConcurrency
 {
@@ -85,6 +88,83 @@ namespace ServiceConcurrency
         }
     }
 
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public abstract class BaseMemoryCache<TArg, TValue> : IEnumerable, IEnumerable<KeyValuePair<TArg, TValue>>
+    {
+        public MemoryCacheEntryOptions CacheEntryOptions { get; set; } = new MemoryCacheEntryOptions() { SlidingExpiration = TimeSpan.FromHours(1) };
+
+        private IMemoryCache cache;
+        private readonly ISet<TArg> possibleKeys = new HashSet<TArg>(); // might contain keys for expired items, only used for clearing cache
+
+        public BaseMemoryCache(IMemoryCache cache)
+        {
+            this.cache = cache;
+        }
+        public BaseMemoryCache() : this(new MemoryCache(new MemoryCacheOptions()))
+        {
+        }
+
+        public void ResetCache()
+        {
+            foreach (var key in this.possibleKeys)
+                this.cache.Remove(key);
+            this.possibleKeys.Clear();
+        }
+
+        public void Set(TArg key, TValue value)
+        {
+            this.cache.Set(key, value, this.CacheEntryOptions);
+            this.possibleKeys.Add(key);
+        }
+
+        public bool TryGetValue(TArg key, out TValue value)
+        {
+            return this.cache.TryGetValue(key, out value);
+        }
+
+        public void Remove(TArg key)
+        {
+            this.cache.Remove(key);
+            this.possibleKeys.Remove(key);
+        }
+
+        public bool ContainsKey(TArg key)
+        {
+            TValue temp;
+            return this.cache.TryGetValue(key, out temp);
+        }
+
+        public TValue this[TArg key]
+        {
+            get
+            {
+                TValue value;
+                if (this.cache.TryGetValue(key, out value))
+                    return value;
+                throw new KeyNotFoundException($"They key '{key}' does not exist");
+            }
+            set
+            {
+                this.Set(key, value);
+            }
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return this.GetEnumerator();
+        }
+
+        public IEnumerator<KeyValuePair<TArg, TValue>> GetEnumerator()
+        {
+            foreach (var key in this.possibleKeys)
+            {
+                TValue value;
+                if (this.cache.TryGetValue(key, out value))
+                    yield return new KeyValuePair<TArg, TValue>(key, value);
+            }
+        }
+    }
+
     /// <summary>
     /// Prevents concurrent calls by allowing only one active call at a time,
     /// where concurrent calls will wait for the active call to finish.
@@ -148,21 +228,42 @@ namespace ServiceConcurrency
     {
     }
 
-    public class ReturnsValue<TSourceValue, TValue>
+    public class ReturnsValue<TSourceValue, TValue> : BaseMemoryCache<Guid, TValue>
     {
-        public TValue Value { get; set; }
-        public bool EnableCache { get; set; } = true;
+        public TValue Value
+        {
+            get
+            {
+                TValue value;
+                if (this.TryGetValue(this.cacheKey, out value))
+                    return value;
+                return default(TValue);
+            }
 
-        private bool hasValue;
+            set
+            {
+                this.Set(this.cacheKey, value);
+            }
+        }
+
+        private readonly Guid cacheKey = Guid.NewGuid();
         private Task<TSourceValue> runningTask;
+
+        public ReturnsValue()
+        {
+        }
+        public ReturnsValue(IMemoryCache cache) : base(cache)
+        {
+        }
 
         public async Task<ResultAndStateInfo<TValue>> ExecuteAndGetExecutorInfo(
             Func<Task<TSourceValue>> taskGetter,
             Func<TSourceValue, TValue> valueConverter = null,
-            bool bypassCache = false)
+            bool bypassCacheRead = false)
         {
-            if (this.EnableCache && !bypassCache && this.hasValue)
-                return new ResultAndStateInfo<TValue>(false, this.Value);
+            TValue value;
+            if (!bypassCacheRead && this.TryGetValue(this.cacheKey, out value))
+                return new ResultAndStateInfo<TValue>(false, value);
 
             if (this.runningTask != null)
                 return new ResultAndStateInfo<TValue>(false, ConvertValue.Convert(await this.runningTask, valueConverter));
@@ -171,15 +272,9 @@ namespace ServiceConcurrency
             try
             {
                 var result = await this.runningTask;
-
                 var convertedResult = ConvertValue.Convert(result, valueConverter);
 
-                if (this.EnableCache)
-                {
-                    this.Value = convertedResult;
-                    this.hasValue = true;
-                }
-
+                this.Set(this.cacheKey, convertedResult);
                 return new ResultAndStateInfo<TValue>(true, convertedResult);
             }
             finally
@@ -191,21 +286,15 @@ namespace ServiceConcurrency
         public async Task<TValue> Execute(
             Func<Task<TSourceValue>> taskGetter,
             Func<TSourceValue, TValue> valueConverter = null,
-            bool bypassCache = false)
+            bool bypassCacheRead = false)
         {
-            return (await this.ExecuteAndGetExecutorInfo(taskGetter, valueConverter, bypassCache)).Result;
+            return (await this.ExecuteAndGetExecutorInfo(taskGetter, valueConverter, bypassCacheRead)).Result;
         }
 
         public void Reset()
         {
             this.runningTask = null;
             this.ResetCache();
-        }
-
-        public void ResetCache()
-        {
-            this.Value = default(TValue);
-            this.hasValue = false;
         }
 
         public bool IsExecuting()
@@ -295,21 +384,25 @@ namespace ServiceConcurrency
     {
     }
 
-    public class TakesArgReturnsValue<TArg, TSourceValue, TValue>
+    public class TakesArgReturnsValue<TArg, TSourceValue, TValue> : BaseMemoryCache<TArg, TValue>
     {
-        public Dictionary<TArg, TValue> ValueMap { get; } = new Dictionary<TArg, TValue>();
-        public bool EnableCache { get; set; } = true;
-
         private readonly Dictionary<TArg, Task<TSourceValue>> runningTasksMap = new Dictionary<TArg, Task<TSourceValue>>();
+
+        public TakesArgReturnsValue()
+        {
+        }
+        public TakesArgReturnsValue(IMemoryCache cache) : base(cache)
+        {
+        }
 
         public async Task<ResultAndStateInfo<TValue>> ExecuteAndGetExecutorInfo(
             Func<TArg, Task<TSourceValue>> taskGetter,
             TArg requestArg,
             Func<TSourceValue, TValue> valueConverter = null,
-            bool bypassCache = false)
+            bool bypassCacheRead = false)
         {
             TValue value;
-            if (this.EnableCache && !bypassCache && this.ValueMap.TryGetValue(requestArg, out value))
+            if (!bypassCacheRead && this.TryGetValue(requestArg, out value))
                 return new ResultAndStateInfo<TValue>(false, value);
 
             Task<TSourceValue> taskInFlightFetchingRelevantArg;
@@ -321,11 +414,9 @@ namespace ServiceConcurrency
             try
             {
                 var result = await task;
-
                 var convertedResult = ConvertValue.Convert(result, valueConverter);
-                if (this.EnableCache)
-                    this.ValueMap[requestArg] = convertedResult;
 
+                this.Set(requestArg, convertedResult);
                 return new ResultAndStateInfo<TValue>(true, convertedResult);
             }
             finally
@@ -338,20 +429,15 @@ namespace ServiceConcurrency
             Func<TArg, Task<TSourceValue>> taskGetter,
             TArg requestArg,
             Func<TSourceValue, TValue> valueConverter = null,
-            bool bypassCache = false)
+            bool bypassCacheRead = false)
         {
-            return (await this.ExecuteAndGetExecutorInfo(taskGetter, requestArg, valueConverter, bypassCache)).Result;
+            return (await this.ExecuteAndGetExecutorInfo(taskGetter, requestArg, valueConverter, bypassCacheRead)).Result;
         }
 
         public void Reset()
         {
             this.runningTasksMap.Clear();
             this.ResetCache();
-        }
-
-        public void ResetCache()
-        {
-            this.ValueMap.Clear();
         }
 
         public bool IsExecuting(TArg requestArg)
@@ -442,23 +528,27 @@ namespace ServiceConcurrency
     {
     }
 
-    public class TakesEnumerationArgReturnsValue<TArg, TSourceValue, TValue>
+    public class TakesEnumerationArgReturnsValue<TArg, TSourceValue, TValue> : BaseMemoryCache<TArg, TValue>
     {
-        public Dictionary<TArg, TValue> ValueMap { get; } = new Dictionary<TArg, TValue>();
-        public bool EnableCache { get; set; } = true;
-
         private readonly Dictionary<TArg, Task<IEnumerable<TSourceValue>>> runningTasksMap = new Dictionary<TArg, Task<IEnumerable<TSourceValue>>>();
+
+        public TakesEnumerationArgReturnsValue()
+        {
+        }
+        public TakesEnumerationArgReturnsValue(IMemoryCache cache) : base(cache)
+        {
+        }
 
         public async Task<EnumerableResultAndStateInfo<TArg, TValue>> ExecuteAndGetExecutorInfo(
             Func<IEnumerable<TArg>, Task<IEnumerable<TSourceValue>>> taskGetter,
             Func<TArg, IEnumerable<TValue>, TValue> valueForArgGetter,
             IEnumerable<TArg> requestArg,
             Func<IEnumerable<TSourceValue>, IEnumerable<TValue>> valueConverter = null,
-            bool bypassCache = false)
+            bool bypassCacheRead = false)
         {
             requestArg = requestArg.Distinct();
 
-            var argsNotInCache = !this.EnableCache && !bypassCache ? requestArg : requestArg.Where(t => !this.ValueMap.ContainsKey(t)).ToList();
+            var argsNotInCache = bypassCacheRead ? requestArg : requestArg.Where(t => !this.ContainsKey(t)).ToList();
 
             var tasksInFlightForRelevantArgs = this.runningTasksMap.Where(t => argsNotInCache.Contains(t.Key)).ToList();
             var argsRequiringCall = argsNotInCache.Where(t => !tasksInFlightForRelevantArgs.Select(u => u.Key).Contains(t)).ToList();
@@ -474,13 +564,10 @@ namespace ServiceConcurrency
 
                     result = ConvertValue.Convert(await task, valueConverter);
 
-                    if (this.EnableCache)
+                    foreach (var arg in argsRequiringCall)
                     {
-                        foreach (var arg in argsRequiringCall)
-                        {
-                            var resultValue = valueForArgGetter(arg, result);
-                            this.ValueMap[arg] = resultValue;
-                        }
+                        var resultValue = valueForArgGetter(arg, result);
+                        this.Set(arg, resultValue);
                     }
                 }
                 finally
@@ -504,7 +591,7 @@ namespace ServiceConcurrency
             var argsFromCache = requestArg.Where(t => !argsNotInCache.Contains(t));
             if (argsFromCache.Any())
             {
-                var fromCache = this.ValueMap.Where(t => argsFromCache.Contains(t.Key)).Select(t => t.Value);
+                var fromCache = this.Where(t => argsFromCache.Contains(t.Key)).Select(t => t.Value);
                 result = result.Union(fromCache);
             }
 
@@ -516,20 +603,15 @@ namespace ServiceConcurrency
             Func<TArg, IEnumerable<TValue>, TValue> valueForArgGetter,
             IEnumerable<TArg> requestArg,
             Func<IEnumerable<TSourceValue>, IEnumerable<TValue>> valueConverter = null,
-            bool bypassCache = false)
+            bool bypassCacheRead = false)
         {
-            return (await this.ExecuteAndGetExecutorInfo(taskGetter, valueForArgGetter, requestArg, valueConverter, bypassCache)).Result;
+            return (await this.ExecuteAndGetExecutorInfo(taskGetter, valueForArgGetter, requestArg, valueConverter, bypassCacheRead)).Result;
         }
 
         public void Reset()
         {
             this.runningTasksMap.Clear();
             this.ResetCache();
-        }
-
-        public void ResetCache()
-        {
-            this.ValueMap.Clear();
         }
 
         public bool IsExecuting(TArg requestArg)
