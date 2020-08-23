@@ -1,5 +1,5 @@
 # ServiceConcurrency
-_A concurrency and state library for .NET, shines in net call services._
+_A concurrency and state library for .NET, shines in network calls._
 
 NuGet package available at https://www.nuget.org/packages/ServiceConcurrency/
 
@@ -18,6 +18,9 @@ call being made. This value can be accessed at any time, preventing a
 need for additional backing fields in your code. If the argument is a
 collection, cached entities are stripped from the argument.
 
+This library uses
+[IMemoryCache](https://docs.microsoft.com/en-us/aspnet/core/performance/caching/memory?view=aspnetcore-3.1#systemruntimecachingmemorycache)
+for internal caching of data.
 
 ## Real-life examples
 
@@ -111,13 +114,20 @@ The next time "A", "B", "C" or "D" is called with, it will be stripped from
 the collection and a value for it will be fetched from the cache.
 
 ## API
+
+### Constructors
+
+All ServiceConcurrency objects have a parameterless constructor, in which case an internal IMemoryCache will be created.
+
+All ServiceConcurrency objects also have a constructor that accepts an IMemoryCache object, in case you want to share the cache with all ServiceConcurrency objects. If you do, please make sure to use unique keys on the entries.
+
 ### Methods
 
 ```c#
 T Execute(...)
 ```
 
-Executes a specific request. You provide a callback for making the outside call. See the examples for more information, as the arguments and return types are ServiceConcurrency type specific.
+Executes a specific request. You provide a callback for making the outside call. See the examples for more information, as the arguments and return types are ServiceConcurrency type specific. The resulting value is cached and provided to you in your callback.
 
 ```c#
 void Reset()
@@ -137,29 +147,68 @@ void ResetCache()
 
 Only in ServiceConcurrency objects that return values. Resets the internal cache. Also called from Reset().
 
+```c#
+bool TryGetValue(TArg key, out TValue value)
+```
+
+Gets a value from the cache.
+
+```c#
+void Set(TArg key, TValue value)
+```
+
+A cache setter in the rare case you might need to manipulate the cache manually.
+
+```c#
+void Remove(TArg key)
+```
+
+Removes a value from the cache.
+
+```c#
+bool ContainsKey(TArg key)
+```
+
+Checks whether an entry exists in the cache.
+
+```c#
+TValue this[TArg key]
+```
+
+Array operator for setting and getting cache entries. Throws a KeyNotFoundException in the getter if an entry doesn't exist.
+
+```c#
+IEnumerator<KeyValuePair<TArg, TValue>> GetEnumerator()
+IEnumerator IEnumerable.GetEnumerator()
+```
+
+Enumerators for the internal cache. Allows you to use the objects in foreach and LINQ statements.
+
+```c#
+void Dispose()
+```
+
+Disposes of the internal cache.
+
 ### Properties
 
 ```c#
-bool EnableCache;
+MemoryCacheEntryOptions CacheEntryOptions;
 ```
 
-Only in ServiceConcurrency objects that return values. If turned off, the cache will be bypassed.
+These options are internally used when a value is cached. Editing these allow you to set expiration, cache sizes etc.
+See [MemoryCacheOptions](https://docs.microsoft.com/en-us/dotnet/api/microsoft.extensions.caching.memory.memorycacheentryoptions?view=dotnet-plat-ext-3.1) for more details.
 
 ```c#
 TValue Value;
 ```
 
-Only in ReturnsValue&lt;TValue&gt;. This is the cached state.
-
-```c#
-Dictionary<TArg, TValue> ValueMap;
-```
-
-Only in TakesArgReturnsValue&lt;TArg, TValue&gt; and TakesEnumerationArgReturnsValue&lt;TArg, TValue&gt;. This is the cached state, per argument.
+Only in ReturnsValue&lt;TValue&gt;. This is the single cached object.
 
 ### Value conversion (optional)
 
-Execute() accepts an optional value converter, which can modify the fetched value before returning and caching it. This is available only in the ServiceConcurrency objects that return values.
+Execute() accepts an optional value converter, which can modify the fetched value before returning and caching it.
+This is available only in the ServiceConcurrency objects that return values.
 
 ```c#
 private ServiceConcurrency.ReturnsValue<string> lastName =
