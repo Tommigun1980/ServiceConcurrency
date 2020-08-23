@@ -188,7 +188,7 @@ Enumerators for the internal cache. Allows you to use the objects in foreach and
 void Dispose()
 ```
 
-Disposes of the internal cache.
+Disposes of the internal cache in case bool `IsCacheShared` is false. If it's a shared cache it will just call `ResetCache` instead.
 
 ### Properties
 
@@ -204,6 +204,12 @@ TValue Value;
 ```
 
 Only in ReturnsValue&lt;TValue&gt;. This is the single cached object.
+
+```c#
+bool IsCacheShared
+```
+
+Getter only. Denotes if the cache is shared or not.
 
 ### Value conversion (optional)
 
