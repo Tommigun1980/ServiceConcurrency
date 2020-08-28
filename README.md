@@ -141,11 +141,13 @@ bool IsExecuting()
 
 Returns whether the ServiceConcurrency object is currently executing a specific request.
 
+*The following methods are only available in ServiceConcurrency objects that return values.*
+
 ```c#
 void ResetCache()
 ```
 
-Only in ServiceConcurrency objects that return values. Resets the internal cache. Also called from Reset().
+Resets the internal cache. Also called from Reset().
 
 ```c#
 bool TryGetValue(TArg key, out TValue value)
@@ -193,17 +195,19 @@ Disposes of the internal cache in case bool `IsCacheShared` is false. If it's a 
 ### Properties
 
 ```c#
+TValue Value;
+```
+
+Only in ReturnsValue&lt;TValue&gt;. This is the single cached object.
+
+*The following properties are only available in ServiceConcurrency objects that return values.*
+
+```c#
 MemoryCacheEntryOptions CacheEntryOptions;
 ```
 
 These options are internally used when a value is cached. Editing these allow you to set expiration, cache sizes etc.
 See [MemoryCacheOptions](https://docs.microsoft.com/en-us/dotnet/api/microsoft.extensions.caching.memory.memorycacheentryoptions?view=dotnet-plat-ext-3.1) for more details.
-
-```c#
-TValue Value;
-```
-
-Only in ReturnsValue&lt;TValue&gt;. This is the single cached object.
 
 ```c#
 bool IsCacheShared
@@ -263,7 +267,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Linq;
 
-public class MyService
+public class MyService : IDisposable
 {
     ////////////////////////////////////////////////////////////////////////////
     // NoArgNoValue example
@@ -416,6 +420,16 @@ public class MyService
 
             someIds
         );
+    }
+    
+    void Dispose()
+    {
+        this.simpleCallState.Dispose();
+        this.returnsValueState.Dispose();
+        this.takesArgState.Dispose();
+        this.takesArgReturnsValueState.Dispose();
+        this.takesEnumerationArgState.Dispose();
+        this.takesEnumArgReturnsValueState.Dispose();
     }
 }
 ```
