@@ -210,7 +210,7 @@ These options are internally used when a value is cached. Editing these allow yo
 See [MemoryCacheOptions](https://docs.microsoft.com/en-us/dotnet/api/microsoft.extensions.caching.memory.memorycacheentryoptions?view=dotnet-plat-ext-3.1) for more details.
 
 ```c#
-bool IsCacheShared
+bool IsCacheShared;
 ```
 
 Getter only. Denotes if the cache is shared or not.
