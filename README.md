@@ -119,7 +119,7 @@ the collection and a value for it will be fetched from the cache.
 
 All ServiceConcurrency objects have a parameterless constructor, in which case an internal IMemoryCache will be created.
 
-All ServiceConcurrency objects also have a constructor that accepts an IMemoryCache object, in case you want to share the cache with all ServiceConcurrency objects. If you do, please make sure to use unique keys on the entries.
+All ServiceConcurrency objects that return values also have a constructor that accepts an IMemoryCache object, in case you want to share the cache with all ServiceConcurrency objects. If you do, please make sure to use unique keys on the entries.
 
 ### Methods
 
