@@ -28,17 +28,6 @@
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="3.1.9" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Remove="Examples\ExampleService.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Update="ServiceConcurrency.cs">
-      <IncludeInPackage>true</IncludeInPackage>
-    </Compile>
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Examples\" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="Examples\ExampleService.cs" Condition=" '$(EnableDefaultCompileItems)' == 'true' " />
+    <Folder Include="Implementations\" />
   </ItemGroup>
 </Project>
