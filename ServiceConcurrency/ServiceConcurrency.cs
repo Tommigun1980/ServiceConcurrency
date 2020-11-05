@@ -91,18 +91,22 @@ namespace ServiceConcurrency
     [EditorBrowsable(EditorBrowsableState.Never)]
     public abstract class BaseMemoryCache<TArg, TValue> : IEnumerable, IEnumerable<KeyValuePair<TArg, TValue>>, IDisposable
     {
+        public delegate void ValueChangedAction(TArg key, TValue value, BaseMemoryCache<TArg, TValue> cacheInstance = null);
+
         public MemoryCacheEntryOptions CacheEntryOptions { get; set; } = new MemoryCacheEntryOptions() { SlidingExpiration = TimeSpan.FromHours(1) };
         public bool IsCacheShared { get; private set; }
 
         private IMemoryCache cache;
         private readonly ISet<TArg> possibleKeys = new HashSet<TArg>(); // might contain keys for expired items, only used for clearing cache
+        private readonly ValueChangedAction onValueChanged;
 
-        public BaseMemoryCache(IMemoryCache cache)
+        public BaseMemoryCache(IMemoryCache cache, ValueChangedAction onValueChanged = null)
         {
             this.cache = cache;
             this.IsCacheShared = true;
+            this.onValueChanged = onValueChanged;
         }
-        public BaseMemoryCache() : this(new MemoryCache(new MemoryCacheOptions()))
+        public BaseMemoryCache(ValueChangedAction onValueChanged = null) : this(new MemoryCache(new MemoryCacheOptions()), onValueChanged)
         {
             this.IsCacheShared = false;
         }
@@ -110,7 +114,11 @@ namespace ServiceConcurrency
         public void ResetCache()
         {
             foreach (var key in this.possibleKeys)
+            {
                 this.cache.Remove(key);
+
+                this.onValueChanged?.Invoke(key, default(TValue), this);
+            }
             this.possibleKeys.Clear();
         }
 
@@ -118,6 +126,8 @@ namespace ServiceConcurrency
         {
             this.cache.Set(key, value, this.CacheEntryOptions);
             this.possibleKeys.Add(key);
+
+            this.onValueChanged?.Invoke(key, value, this);
         }
 
         public bool TryGetValue(TArg key, out TValue value)
@@ -129,6 +139,8 @@ namespace ServiceConcurrency
         {
             this.cache.Remove(key);
             this.possibleKeys.Remove(key);
+
+            this.onValueChanged?.Invoke(key, default(TValue), this);
         }
 
         public bool ContainsKey(TArg key)
@@ -172,6 +184,13 @@ namespace ServiceConcurrency
             if (!this.IsCacheShared)
             {
                 this.cache.Dispose();
+
+                if (this.onValueChanged != null)
+                {
+                    foreach (var key in this.possibleKeys)
+                        this.onValueChanged.Invoke(key, default(TValue), this);
+                }
+
                 this.possibleKeys.Clear();
             }
             else
@@ -242,6 +261,12 @@ namespace ServiceConcurrency
     /// </remarks>
     public sealed class ReturnsValue<TValue> : ReturnsValue<TValue, TValue>
     {
+        public ReturnsValue(ValueChangedAction onValueChanged = null) : base(onValueChanged)
+        {
+        }
+        public ReturnsValue(IMemoryCache cache, ValueChangedAction onValueChanged = null) : base(cache, onValueChanged)
+        {
+        }
     }
 
     public class ReturnsValue<TSourceValue, TValue> : BaseMemoryCache<Guid, TValue>
@@ -265,10 +290,10 @@ namespace ServiceConcurrency
         private readonly Guid cacheKey = Guid.NewGuid();
         private Task<TSourceValue> runningTask;
 
-        public ReturnsValue()
+        public ReturnsValue(ValueChangedAction onValueChanged = null) : base(onValueChanged)
         {
         }
-        public ReturnsValue(IMemoryCache cache) : base(cache)
+        public ReturnsValue(IMemoryCache cache, ValueChangedAction onValueChanged = null) : base(cache, onValueChanged)
         {
         }
 
@@ -398,16 +423,22 @@ namespace ServiceConcurrency
     /// </remarks>
     public sealed class TakesArgReturnsValue<TArg, TValue> : TakesArgReturnsValue<TArg, TValue, TValue>
     {
+        public TakesArgReturnsValue(ValueChangedAction onValueChanged = null) : base(onValueChanged)
+        {
+        }
+        public TakesArgReturnsValue(IMemoryCache cache, ValueChangedAction onValueChanged = null) : base(cache, onValueChanged)
+        {
+        }
     }
 
     public class TakesArgReturnsValue<TArg, TSourceValue, TValue> : BaseMemoryCache<TArg, TValue>
     {
         private readonly Dictionary<TArg, Task<TSourceValue>> runningTasksMap = new Dictionary<TArg, Task<TSourceValue>>();
 
-        public TakesArgReturnsValue()
+        public TakesArgReturnsValue(ValueChangedAction onValueChanged = null) : base(onValueChanged)
         {
         }
-        public TakesArgReturnsValue(IMemoryCache cache) : base(cache)
+        public TakesArgReturnsValue(IMemoryCache cache, ValueChangedAction onValueChanged = null) : base(cache, onValueChanged)
         {
         }
 
@@ -542,16 +573,22 @@ namespace ServiceConcurrency
     /// </remarks>
     public sealed class TakesEnumerationArgReturnsValue<TArg, TValue> : TakesEnumerationArgReturnsValue<TArg, TValue, TValue>
     {
+        public TakesEnumerationArgReturnsValue(ValueChangedAction onValueChanged = null) : base(onValueChanged)
+        {
+        }
+        public TakesEnumerationArgReturnsValue(IMemoryCache cache, ValueChangedAction onValueChanged = null) : base(cache, onValueChanged)
+        {
+        }
     }
 
     public class TakesEnumerationArgReturnsValue<TArg, TSourceValue, TValue> : BaseMemoryCache<TArg, TValue>
     {
         private readonly Dictionary<TArg, Task<IEnumerable<TSourceValue>>> runningTasksMap = new Dictionary<TArg, Task<IEnumerable<TSourceValue>>>();
 
-        public TakesEnumerationArgReturnsValue()
+        public TakesEnumerationArgReturnsValue(ValueChangedAction onValueChanged = null) : base(onValueChanged)
         {
         }
-        public TakesEnumerationArgReturnsValue(IMemoryCache cache) : base(cache)
+        public TakesEnumerationArgReturnsValue(IMemoryCache cache, ValueChangedAction onValueChanged = null) : base(cache, onValueChanged)
         {
         }
 
